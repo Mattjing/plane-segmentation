@@ -1,0 +1,12 @@
+# Dataset and generated experiment outputs
+/synpeb/
+/results/
+*.asv
+*.m~
+*.bak
+*.log
+*.fig
+/matlab_crash_dump.*
+/slprj/
+/.DS_Store
+/Thumbs.db

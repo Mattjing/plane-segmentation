@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "Please cite this repository if you use the implementation or experimental protocol."
+type: software
+title: "Energy-Based Multi-Plane Segmentation of 3D Point Clouds: MATLAB Comparison Code"
+authors:
+  - family-names: Jing
+    given-names: "Matt (Haocun)"
+    affiliation: University of Victoria
+version: 1.0.0
+date-released: 2026-11-25
+repository-code: "https://github.com/Mattjing/ece503-plane-segmentation"
+url: "https://github.com/Mattjing/ece503-plane-segmentation"
+abstract: >-
+  MATLAB course-project comparison of sequential RANSAC, sampled-proposal PEARL,
+  and RANSAC-initialized PEARL for plane segmentation on SynPEB, including
+  spatial-regularization ablation and reference-plane evaluation.
+keywords:
+  - plane segmentation
+  - RANSAC
+  - PEARL
+  - graph cuts
+  - MATLAB
+  - SynPEB
