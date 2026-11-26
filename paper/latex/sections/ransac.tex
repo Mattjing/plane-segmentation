@@ -1,0 +1,115 @@
+\section{RANSAC and Sequential RANSAC}\label{ransac-and-sequential-ransac}
+
+Sequential RANSAC extracts a collection of planes by repeatedly applying a single-model consensus search to the points that remain unassigned. This section specifies the implemented pipeline: generate a plane from a sampled triplet, measure its support over all remaining points, refine the strongest candidate, and remove its accepted support before searching for another plane. The single-model search follows the robust estimation principle of RANSAC \cite{fischler1981ransac}.
+
+\subsection{Plane representation and estimation task}\label{plane-representation-and-estimation-task}
+
+Let P = \{\(x_{1}\), \ldots, \(x_{n}\)\} be the input point cloud, with each observation in three-dimensional Euclidean space. A plane is represented by a normal n and signed offset d:
+
+\begin{equation}
+n^\top x+d=0,\qquad \|n\|_2=1.
+\label{eq:1}
+\end{equation}
+
+The unit-normal constraint makes the absolute algebraic residual equal to the orthogonal point-to-plane distance. For plane \(\theta\) = (n, d), define
+
+\begin{equation}
+r_i(\theta)=|n^\top x_i+d|.
+\label{eq:2}
+\end{equation}
+
+The unknowns are the plane parameters and the membership of each point. They are estimated separately for every scan; no classifier weights are trained or transferred between scans. Reference plane IDs are used only for parameter selection and evaluation, never to construct a hypothesis or select its inliers. The output labels are temporary identifiers assigned in extraction order, rather than semantic classes learned from reference IDs.
+
+\subsection{Hypothesis generation from three points}\label{hypothesis-generation-from-three-points}
+
+At extraction stage k, let \(R_{k}\) denote the indices of the remaining points. Each trial draws three distinct indices from this set. In the implementation, sampling is local with probability \(\rho\) and global with probability 1 \(-\) \(\rho\). A local draw first selects a remaining anchor, then draws a triplet from remaining points inside a square patch of radius h in the organized, subsampled scan grid. If fewer than three points are available in that patch, the draw falls back to global sampling. Global sampling draws a triplet uniformly without replacement from \(R_{k}\). Locality uses grid position and does not require reference labels.
+
+For sampled coordinates a, b, and c, the geometric construction is
+
+\begin{equation}
+v=(b-a)\times(c-a),
+\label{eq:3}
+\end{equation}
+
+\begin{equation}
+n=\frac{v}{\|v\|_2},\qquad d=-n^\top a.
+\label{eq:4}
+\end{equation}
+
+A collinear triplet does not determine a unique plane and must be rejected. The code computes the equivalent plane through a centered singular value decomposition (SVD), rather than explicitly using the cross product. It rejects a sample if the second singular value is below \(1^{-10}\), which detects coincident or numerically collinear samples. It also fixes the normal sign so that its component with greatest absolute magnitude is positive. Changing both n and d to their negatives would represent the same plane.
+
+\subsection{Consensus scoring and the inner loop}\label{consensus-scoring-and-the-inner-loop}
+
+A triplet generates a hypothesis; it does not supply the complete inlier set. Every valid candidate is verified against every remaining point. Given the fixed distance threshold \(\tau\), the consensus set is
+
+\begin{equation}
+I_k(\theta)=\{i\in R_k:r_i(\theta)\leq\tau\}.
+\label{eq:5}
+\end{equation}
+
+The support count and residual score are
+
+\begin{equation}
+S_k(\theta)=|I_k(\theta)|,
+\label{eq:6}
+\end{equation}
+
+\begin{equation}
+Q_k(\theta)=\sum_{i\in I_k(\theta)}r_i^2(\theta).
+\label{eq:7}
+\end{equation}
+
+The inner loop retains the candidate with greatest support. If two candidates have equal support, the one with the smaller sum of squared inlier distances is retained. This is a lexicographic selection rule: support count has priority over fitting error. It is neither softmax classification nor an independent nearest-plane assignment. Sampling approximates a maximum-consensus search; it does not guarantee the globally best plane.
+
+The current implementation performs T = 150 attempted hypotheses per extracted plane. Degenerate attempts consume a trial and are skipped without scoring. Once all attempts have been processed, extraction terminates if the strongest candidate has fewer than m supporting points. Otherwise, its parameters and support initialize the refinement stage. T is a fixed computational budget, and the code does not adapt it using a desired success probability.
+
+\subsection{Refinement using the consensus set}\label{refinement-using-the-consensus-set}
+
+Three points suffice to propose a plane, but measurement noise makes such an estimate sensitive to the sampled locations. Refinement uses all currently accepted inliers to solve the constrained orthogonal least-squares problem
+
+\begin{equation}
+\min_{\|n\|_2=1,\,d}\;\sum_{i\in I}(n^\top x_i+d)^2.
+\label{eq:8}
+\end{equation}
+
+Let \(\mu\) be the centroid of these inliers and A the matrix whose rows are their centered coordinates:
+
+\begin{equation}
+\mu=\frac{1}{|I|}\sum_{i\in I}x_i,\qquad A_{i,:}=(x_i-\mu)^\top.
+\label{eq:9}
+\end{equation}
+
+For the decomposition A = U\(\Sigma\)\(V^{T}\), the right singular vector associated with the smallest singular value minimizes the orthogonal least-squares objective:
+
+\begin{equation}
+n=v_{\min},\qquad d=-n^\top\mu.
+\label{eq:10}
+\end{equation}
+
+After each refit, distances are recomputed for all points in \(R_{k}\), including those outside the previous consensus set. Points can therefore enter or leave the candidate support. Up to three refit-and-reclassification passes are performed. If a refit is degenerate or its new support falls below m, the pass is rejected and the last accepted plane and support are retained. The code does not stop early merely because membership is unchanged.
+
+For fixed membership, SVD minimizes the squared fitting error. Reclassification changes that membership, however, so the complete refinement loop is not guaranteed to monotonically improve the earlier lexicographic score. The stored plane is fitted to the support entering the last accepted pass; its returned support is obtained by thresholding that plane. This describes the implemented ordering without assuming an additional final refit.
+
+\subsection{Sequential extraction and stopping rules}\label{sequential-extraction-and-stopping-rules}
+
+Initialize \(R_{1}\) to all input indices and assign every point label zero. After the inner search and refinement accept a plane \(\theta_{k}\) with support \(I_{k}\), update the labels and remaining set as follows:
+
+\begin{equation}
+L_i=k\quad\text{for }i\in I_k,
+\label{eq:11}
+\end{equation}
+
+\begin{equation}
+R_{k+1}=R_k\setminus I_k.
+\label{eq:12}
+\end{equation}
+
+The next outer iteration runs a fresh hypothesis search on this reduced set. Previously accepted planes and their assigned points are not revisited. The procedure stops when fewer than m points remain, the best new candidate has fewer than m inliers, or the number of extracted planes reaches the cap \(K_{max}\). Unassigned points retain label zero. The cap is a computational limit and does not use the reference number of planes.
+
+The loop structure is therefore: initialize the remaining set; perform T hypothesis attempts; retain the strongest candidate; reject insufficient support or refine it up to three times; assign and remove its inliers; and repeat until an outer stopping rule is met. With \(N_{k}\) remaining points at stage k, candidate verification requires O(T\(N_{k}\)) residual evaluations. The total verification work scales as \(O(T\sum_k N_k)\), in addition to sampling and SVD refinement.
+
+\subsection{Fixed settings and practical limitations}\label{fixed-settings-and-practical-limitations}
+
+RANSAC requires no supervised fitting phase, but it does require algorithm settings: \(\tau\), T, m, \(K_{max}\), \(\rho\), and h. In this project, the training split was used to select shared settings, including the distance threshold, minimum support, plane cap, and local radius, before test evaluation. The hypothesis budget and local sampling fraction were fixed. All selected settings remain unchanged during testing, while plane parameters and memberships are estimated anew for each scan. Thus, absence of learned weights does not imply absence of hyperparameter selection.
+
+The threshold controls the tradeoff between tolerance to noise and incorrect support from nearby surfaces. A larger trial budget increases the opportunity to sample a useful plane but increases runtime. Greedy removal makes sequential RANSAC efficient and simple, while preventing later evidence from correcting an earlier assignment. Points near intersections may support more than one plane, and early extraction can deprive a smaller surface of sufficient support. These limitations motivate the joint reassignment and model re-estimation considered in the following PEARL section.

@@ -6,10 +6,10 @@ authors:
   - family-names: Jing
     given-names: "Matt (Haocun)"
     affiliation: University of Victoria
-version: 1.0.0
+version: 1.1.0
 date-released: 2026-11-25
-repository-code: "https://github.com/Mattjing/ece503-plane-segmentation"
-url: "https://github.com/Mattjing/ece503-plane-segmentation"
+repository-code: "https://github.com/Mattjing/plane-segmentation"
+url: "https://github.com/Mattjing/plane-segmentation"
 abstract: >-
   MATLAB course-project comparison of sequential RANSAC, sampled-proposal PEARL,
   and RANSAC-initialized PEARL for plane segmentation on SynPEB, including

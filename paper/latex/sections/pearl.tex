@@ -1,0 +1,270 @@
+\section{PEARL for Joint Plane Estimation and Segmentation}\label{pearl-for-joint-plane-estimation-and-segmentation}
+
+PEARL couples geometric model estimation with the assignment of observations to models. Isack and Boykov \cite{isack2012energy} proposed an energy-based framework in which sampled hypotheses initialize a finite model set, assignment optimization estimates their spatial support, and refitting updates their parameters. Our implementation adapts this alternating strategy to three-dimensional plane segmentation. It uses squared orthogonal distances and a weighted Potts spatial prior, with an explicit outlier label. The model-count penalty discussed in the PEARL literature and label-cost extensions \cite{delong2012labelcosts} is not included.
+
+The goal is to minimize a single energy that balances geometric fit against the cost of assigning different labels to neighboring points. Starting from the initial planes and labels, the algorithm alternates between \(\alpha\)-expansion, which updates the labels while holding the planes fixed, and singular value decomposition (SVD), which refits the planes while holding the labels fixed. After each full iteration, the algorithm checks how much the normalized energy has decreased. If the decrease is no greater than the tolerance \(\varepsilon\), it stops early. This stopping rule does not guarantee that the global minimum has been reached.
+
+\subsection{Unknowns and the energy function}\label{unknowns-and-the-energy-function}
+
+For N input points, let \(\Theta\) = \{\(\theta_{1}\), \ldots, \(\theta_{m}\)\} be the current plane bank. Each \(\theta_{k}\) = (\(n_{k}\), \(d_{k}\)) has a unit normal, as in Section~\ref{ransac-and-sequential-ransac}. The assignment vector L contains one label per point: \(L_{i}\) \(\in\) \{0, 1, \ldots, M\}. Label k \textgreater{} 0 selects plane \(\theta_{k}\); label zero designates an outlier. The joint estimation problem is
+
+\begin{equation}
+\min_{L,\Theta}\;E(L,\Theta),\qquad \forall k:\|n_k\|_2=1.
+\label{eq:13}
+\end{equation}
+
+The implemented objective has two terms:
+
+\begin{equation}
+\begin{aligned}E(L,\Theta)&=\sum_{i=1}^{N}D_i(L_i;\Theta)\\&\quad+\lambda\sum_{(i,j)\in\mathcal E}w_{ij}[L_i\ne L_j].\end{aligned}
+\label{eq:14}
+\end{equation}
+
+Here \(\mathcal E\) is a fixed neighborhood edge set, \(w_{ij}\) \(\geq\) 0 is an edge weight, and the bracket is an indicator equal to one when its condition holds. The unary data costs are
+
+\begin{equation}
+D_i(k;\Theta)=(n_k^\top x_i+d_k)^2,\quad k>0,
+\label{eq:15}
+\end{equation}
+
+\begin{equation}
+D_i(0;\Theta)=\tau^2,\qquad\lambda=\eta\tau^2.
+\label{eq:16}
+\end{equation}
+
+The first term measures how well each point fits its assigned plane. For a point assigned to a plane, the cost is the squared perpendicular distance to that plane, with no cap. A point labeled as an outlier instead incurs a fixed cost of \(\tau^{2}\). The second term compares the labels of points joined by an edge in the neighborhood graph. An edge adds no cost if its endpoints have the same label and adds a weighted penalty if their labels differ, whether they belong to two different planes or one is an outlier. For example, at a wall--floor corner, the optimizer can assign connected points to different planes if the reduction in squared-distance costs outweighs the added boundary penalty.
+
+For numerical stability, our work divides the entire objective by \(\tau^{2}\), giving
+
+\begin{equation}
+\begin{aligned}\bar E(L,\Theta)&=\frac{E(L,\Theta)}{\tau^2}=\sum_i\frac{D_i(L_i;\Theta)}{\tau^2}\\&\quad+\eta\sum_{(i,j)\in\mathcal E}w_{ij}[L_i\ne L_j].\end{aligned}
+\label{eq:17}
+\end{equation}
+
+Since \(\tau\) \textgreater{} 0, this positive scaling preserves every minimizer. The normalized outlier cost is one and \(\eta\) is the smoothness ratio stored as \texttt{lambdaRatio}. The reported energy histories multiply normalized values by \(\tau^{2}\) to recover the original units. No softmax or learned classifier is involved.
+
+\subsection{The neighborhood graph}\label{the-neighborhood-graph}
+
+The graph is constructed once from the organized scan after subsampling. Candidate edges join horizontally or vertically adjacent valid grid positions. An edge is discarded if the Euclidean separation between its points exceeds \(r_{max}\). For retained edges,
+
+\begin{equation}
+w_{ij}=\exp\!\left(-\frac{\|x_i-x_j\|_2^2}{2\sigma^2}\right).
+\label{eq:18}
+\end{equation}
+
+The spatial scale \(\sigma\) controls how quickly coupling decays with three-dimensional separation, while \(r_{max}\) removes long edges across depth jumps. The selected configuration uses \(\sigma\) = 0.15 and \(r_{max}\) = 0.30 in the supplied coordinate units. Sampling stride eight retains every eighth row and column; it affects point count, graph connectivity, and the physical separation between neighbors. Reference annotations do not enter edge construction. Neither adjacency nor a shared surface guarantees equal reference IDs: the graph expresses a prior, not a rule defining the dataset labels.
+
+\subsection{Hypotheses and initial assignments}\label{hypotheses-and-initial-assignments}
+
+The sampled-proposal variant attempts H = 1,000 plane hypotheses before optimization. Each attempt uses the same mixed sampler as sequential RANSAC: local sampling with probability \(\rho\) = 0.7, otherwise global sampling. A local draw uses a square grid patch of radius h = 8 and falls back to a global draw if the patch contains fewer than three available points. All input points remain available throughout proposal generation. Triplet parameters can be written as
+
+\begin{equation}
+v=(b-a)\times(c-a),
+\label{eq:19}
+\end{equation}
+
+\begin{equation}
+n=\frac{v}{\|v\|_2},\qquad d=-n^\top a.
+\label{eq:20}
+\end{equation}
+
+The implementation obtains the equivalent parameters through centered SVD and rejects triplets with second singular value below \(1^{-10}\). A valid proposal is retained only if at least m = 6 input points lie within \(\tau\) = 0.04 of it. Candidates are ranked by this thresholded support. Redundant candidates are suppressed using angular and sign-aligned offset differences:
+
+\begin{equation}
+\varphi_{ab}=\arccos(|n_a^\top n_b|),
+\label{eq:21}
+\end{equation}
+
+\begin{equation}
+\Delta_{ab}=|d_a-\operatorname{sign}(n_a^\top n_b)d_b|.
+\label{eq:22}
+\end{equation}
+
+A candidate is skipped if any already retained plane has angle below 3\({}^\circ\) and offset difference below 0.015. Up to M = 150 distinct candidates are retained. This suppression occurs before optimization and does not merge final segments. Initial labels minimize the unary costs independently:
+
+\begin{equation}
+L_i^{(0)}\in\operatorname*{arg\,min}_{k\in\{0,\ldots,M\}}D_i(k;\Theta^{(0)}).
+\label{eq:23}
+\end{equation}
+
+This initialization ignores pairwise costs. Subsequent expansion moves introduce spatial coupling. The hybrid method initializes PEARL with the planes and point labels returned by sequential RANSAC, then applies the same energy and optimization updates as the sampled-proposal variant. Its design is described in Section~\ref{hybrid-ransac-and-pearl-method}.
+
+\subsection{Assignment optimization by alpha expansion}\label{assignment-optimization-by-alpha-expansion}
+
+With \(\Theta\) fixed, \(\alpha\)-expansion \cite{boykov2001graphcuts} considers one target label \(\alpha\) at a time. A binary variable \(z_{i}\) determines whether point i keeps its current label or switches to \(\alpha\):
+
+\begin{equation}
+L_i(z_i)=(1-z_i)L_i+z_i\alpha,
+\label{eq:24}
+\end{equation}
+
+\begin{equation}
+z_i\in\{0,1\},\qquad\alpha\in\{0,\ldots,M\}.
+\label{eq:25}
+\end{equation}
+
+Label arithmetic in this expression encodes the two choices only; numerical label values have no geometric ordering. A single move solves
+
+\begin{equation}
+z^*\in\operatorname*{arg\,min}_{z\in\{0,1\}^N}\bar E(L(z),\Theta).
+\label{eq:26}
+\end{equation}
+
+Thus, an expansion may change any subset of points to one candidate plane while the other points retain their current labels. It does not update plane parameters. Many points can switch together, including disconnected groups if that lowers energy. The binary problem is solved exactly by a minimum cut, but the complete multi-label and continuous problem is only approximately optimized. A move is accepted only if it lowers the normalized energy by more than \(\varepsilon\) = \(1^{-9}\).
+
+The graph-cut construction can be made explicit for this implementation. Let \(v_{ij}\) = \(\eta\)\(w_{ij}\) and let A, B, and C denote the current labels of points i and j and the target \(\alpha\), respectively. The four pairwise costs for binary states are
+
+\begin{equation}
+e_{00}=v_{ij}[A\ne B],\qquad e_{11}=0,
+\label{eq:27}
+\end{equation}
+
+\begin{equation}
+e_{01}=v_{ij}[A\ne C],\qquad e_{10}=v_{ij}[C\ne B].
+\label{eq:28}
+\end{equation}
+
+The Potts disagreement indicator satisfies the triangle inequality, so these costs obey the binary submodularity condition required for graph representation \cite{kolmogorov2004energy}:
+
+\begin{equation}
+e_{00}+e_{11}\leq e_{01}+e_{10}.
+\label{eq:29}
+\end{equation}
+
+The code decomposes each edge cost into a constant, two unary corrections, and a nonnegative cut term:
+
+\begin{equation}
+V(z_i,z_j)=e_{00}+az_i+bz_j+c|z_i-z_j|,
+\label{eq:30}
+\end{equation}
+
+\begin{equation}
+c=\frac{e_{01}+e_{10}-e_{00}}{2}\geq0,
+\label{eq:31}
+\end{equation}
+
+\begin{equation}
+a=e_{10}-e_{00}-c,\qquad b=e_{01}-e_{00}-c.
+\label{eq:32}
+\end{equation}
+
+Unary corrections are accumulated at their endpoints. At each point, subtracting the smaller of the two resulting unary costs preserves the optimizer and makes terminal capacities nonnegative. The graph then has one node per point, source and sink terminals for keep and switch, and edges of capacity c between neighbors. MATLAB \texttt{maxflow} obtains the minimum cut. This gives an exact solution for the current binary move, rather than an exhaustive search over all multi-label assignments.
+
+\subsection{Model re-estimation by SVD}\label{model-re-estimation-by-svd}
+
+After expansion, memberships are fixed and each plane is refitted to its assigned support \(I_{k}\) = \{i : \(L_{i}\) = k\}. For each valid support containing at least three points, the continuous subproblem is
+
+\begin{equation}
+\min_{\|n_k\|_2=1,\,d_k}\;\sum_{i\in I_k}(n_k^\top x_i+d_k)^2.
+\label{eq:33}
+\end{equation}
+
+Let \(\mu_{k}\) be the support centroid and \(A_{k}\) the matrix of centered point coordinates. Differentiation with respect to \(d_{k}\) gives the optimal offset, reducing the problem to a constrained quadratic form:
+
+\begin{equation}
+d_k=-n_k^\top\mu_k,
+\label{eq:34}
+\end{equation}
+
+\begin{equation}
+\begin{aligned}\min_{\|n_k\|_2=1}\|A_kn_k\|_2^2&=\min_{\|n_k\|_2=1}n_k^\top A_k^\top A_kn_k.\end{aligned}
+\label{eq:35}
+\end{equation}
+
+For \(A_{k}\) = \(U_{k}\)\(\Sigma_{k}\)\(V_{k}^{T}\), the solution is the right singular vector associated with the smallest singular value. Equivalently, it is the unit eigenvector of \(A_{k}^{T}\)\(A_{k}\) with smallest eigenvalue:
+
+\begin{equation}
+n_k=v_{k,\min},\qquad d_k=-n_k^\top\mu_k.
+\label{eq:36}
+\end{equation}
+
+SVD reduces the first, geometric term of the energy. It does not reduce the second, spatial term directly: with L fixed, all disagreement indicators and edge weights remain unchanged. The outlier contribution is also constant. A nondegenerate refit can therefore lower the joint energy without changing any label. The code accepts it only if its normalized fitting cost does not exceed the previous cost by more than \(1^{-12}\). Supports with fewer than three points, or with a degenerate SVD, keep their previous plane parameters. Minimum proposal support m is not imposed again as a final segment-size filter.
+
+\subsection{Why the two updates are coupled}\label{why-the-two-updates-are-coupled}
+
+Assignments determine which observations enter each SVD. Updated parameters then change the data costs used by the next expansion. For exact non-increasing updates, this alternating relationship gives
+
+\begin{equation}
+\begin{aligned}E(L^{t+1},\Theta^{t+1})&\leq E(L^{t+1},\Theta^t)\\&\leq E(L^t,\Theta^t).\end{aligned}
+\label{eq:37}
+\end{equation}
+
+The implementation enforces this behavior up to numerical tolerances. A coherent group can first obtain a better assignment, then provide a more stable plane estimate than its original triplet, allowing further points to join in a later iteration. Conversely, an incorrect group can bias a refit and trap subsequent assignments. Decreasing energy improves the specified compromise between fit and coherence; it does not guarantee that both terms decrease independently, nor that ground-truth accuracy increases. The reference labels are absent from this objective.
+
+\subsection{The complete loop and iteration limits}\label{the-complete-loop-and-iteration-limits}
+
+The pipeline follows the four PEARL operations, with the following implementation-specific limits.
+
+\begin{enumerate}
+\item \textbf{Propose.} Generate and screen the initial candidate bank once, or accept the exact sequential-RANSAC planes and labels. For sampled initialization, compute unary-minimum labels. Evaluate the complete initial energy before any expansion.
+
+\item \textbf{Expand.} Keep all plane parameters fixed. Perform up to three sweeps; in each sweep, visit every plane label and the outlier label once, in a newly randomized order. For each target, solve one binary cut and accept a sufficiently energy-reducing move. End the sweep loop early if a complete sweep fails to improve normalized energy by more than \(\varepsilon\).
+
+\item \textbf{Re-estimate.} Keep the resulting labels fixed and attempt one SVD refit for every plane. Recompute the full unary matrix and complete energy after the refits. No new candidate planes are proposed, and unused candidates remain available during optimization.
+
+\item \textbf{Repeat.} Alternate expansion and refitting for at most 15 outer iterations. Stop early if the normalized energy reduction across a complete outer iteration is at most \(\varepsilon\). After stopping, remove only unused labels and compact their IDs. No final reassignment, segment merging, or support filtering is applied.
+
+\end{enumerate}
+
+Three sweeps means three passes over all labels, not three individual \(\alpha\)-expansion moves. With M plane labels, the maximum number of binary moves is
+
+\begin{equation}
+N_{\mathrm{cuts}}\leq15\times3\times(M+1).
+\label{eq:38}
+\end{equation}
+
+For M = 150, this bound is 6,795 graph cuts; early stopping usually reduces it. The energy log contains the initial state and one entry after expansion and refitting for every completed outer iteration, giving at most 31 values. Reaching the iteration or sweep cap does not establish convergence to an expansion-local minimum. The random seed controls both proposal sampling and label-visit order.
+
+\subsection{Hyperparameter effects and interactions}\label{hyperparameter-effects-and-interactions}
+
+The energy parameters are \(\tau\), \(\eta\), \(\sigma\), and the graph cutoff \(r_{max}\). The threshold \(\tau\) sets the outlier penalty and is also used to screen proposals. Increasing it makes outlier assignment more costly, admits broader proposal support, and, at fixed \(\eta\), increases the physical smoothness weight \(\lambda\) = \(\eta\)\(\tau^{2}\). It therefore changes several parts of the pipeline together. The selected values \(\tau\) = 0.04 and \(\eta\) = 0.4 imply \(\lambda\) = 0.00064 and an outlier cost of 0.0016. Unlike proposal screening, final assignment does not enforce \(\tau\) as a hard distance bound: spatial savings can justify assigning a point whose plane residual exceeds \(\tau\).
+
+The ratio \(\eta\) controls coherence relative to normalized fitting error. At \(\eta\) = 0, assignment for fixed planes separates into independent unary minima; alternating these assignments and SVD becomes a spatially unregularized fitting procedure. Increasing \(\eta\) discourages isolated assignments and fragmented support, but can also merge nearby structures or erase a small plane. The prior favors equal model labels, not merely similar normals. Distinct labels incur a boundary cost even if their planes are nearly parallel.
+
+Increasing \(\sigma\) strengthens retained edges at a given separation. Increasing \(r_{max}\) adds candidate connections that would otherwise be removed, potentially coupling points across depth discontinuities. Neither change repairs a missing candidate plane. Proposal count H and candidate cap M control initialization coverage and optimization cost; local radius h and fraction \(\rho\) control the chance of sampling a coherent surface rather than crossing several surfaces. Angular and offset suppression tolerances determine how similar two candidates may be before one is discarded. These are initialization settings, rather than extra terms in the energy.
+
+For a region R switching to \(\alpha\), let \(L^{'}\) denote the resulting labels and let \(\delta_{ij}\)(L) = {[}\(L_{i}\) \(\ne\) \(L_{j}\){]}. With \(\Theta\) fixed, the energy change explicitly balances fit and boundary changes:
+
+\begin{equation}
+\begin{aligned}\Delta E&=\sum_{i\in R}[D_i(\alpha)-D_i(L_i)]\\&\quad+\lambda\sum_{(i,j)\in\mathcal E}w_{ij}\bigl(\delta_{ij}(L')-\delta_{ij}(L)\bigr).\end{aligned}
+\label{eq:39}
+\end{equation}
+
+Switching a coherent region may create only a boundary penalty while improving the fit of many interior points. Alternatively, a slight increase in fitting error can be accepted if removing label boundaries saves more spatial cost. If improved membership gives SVD cleaner support, the next geometric update may recover some of that fit cost. Strong smoothing applied to an incorrect initial group can instead reinforce the wrong model. More iterations cannot guarantee recovery from such a configuration.
+
+The normalized stopping tolerance \(\varepsilon\) = \(1^{-9}\) controls acceptance and early stopping, not geometric accuracy. The iteration and sweep budgets limit optimization effort. All geometric scales use the input coordinate units; changing units requires corresponding changes to \(\tau\), \(\sigma\), \(r_{max}\), and the offset suppression tolerance. Scaling all lengths consistently and keeping \(\eta\) fixed scales the unnormalized energy by the square of the length conversion, while preserving the normalized objective.
+
+\subsection{Hyperparameter selection on the training split}\label{hyperparameter-selection-on-the-training-split}
+
+Hyperparameter selection is an outer experimental procedure, distinct from the per-scan energy minimization. It uses annotated training scans to choose settings, then fixes those settings before testing. There is no training of a reusable plane bank, assignment function, or network. Test scans generate and optimize their own hypotheses without reference labels.
+
+Screening uses training scans 1 and 2, variants var1 and var4, and seed 7. A staged coordinate search first varies proposal count over \{1,000, 3,000, 5,000\}, plane cap over \{60, 100, 150\}, and local radius over \{2, 4, 8\}, carrying forward the selected configuration after each stage. It then evaluates the 25 threshold--smoothness combinations
+
+\begin{equation}
+\tau\in\{0.005,0.01,0.02,0.04,0.08\},
+\label{eq:40}
+\end{equation}
+
+\begin{equation}
+\eta\in\{0,0.02,0.05,0.15,0.4\},
+\label{eq:41}
+\end{equation}
+
+and finally tests minimum proposal/extraction support m \(\in\) \{6, 12, 20\}. Previously completed configurations are reused. This staged search is not an exhaustive Cartesian search over every setting. The three highest-ranked screened configurations are confirmed on the disjoint training scans 3--10, using all four variants and seeds 7, 19, and 43: 96 scan--variant--seed records per configuration and method.
+
+For a configuration c, the primary selection score gives the two methods equal weight:
+
+\begin{equation}
+J(c)=\tfrac12\bigl(\overline{\mathrm{IoU}}_{\mathrm{RANSAC}}^{\,c}+\overline{\mathrm{IoU}}_{\mathrm{PEARL}}^{\,c}\bigr).
+\label{eq:42}
+\end{equation}
+
+Each method's mean is taken over the evaluated records. Per record, mean matched IoU averages reference-plane overlaps after one-to-one maximum-overlap matching, with unmatched reference planes contributing zero. Ties in J are resolved by greater mean F-score averaged across the two methods, then by smaller summed mean runtime. Raw energies are not compared across configurations with different parameters, and PEARL accuracy alone does not determine the winner.
+
+Confirmation selected H = 1,000, M \(\leq\) 150, h = 8, m = 6, \(\tau\) = 0.04, and \(\eta\) = 0.4. The joint confirmation score was 0.3850. The alternative \(\tau\) = 0.08, \(\eta\) = 0.15 had greater PEARL-only matched IoU but a lower joint score. This distinction follows from selecting a shared experimental configuration. The remaining settings described above were fixed rather than searched. The spatial-prior ablation sets \(\eta\) to zero while retaining the sampled initialization; it tests the effect of removing spatial coupling under the selected configuration, rather than the best independently tuned unregularized model.
+
+\subsection{Computation and limitations}\label{computation-and-limitations}
+
+Proposal verification requires approximately O(HN) distance calculations. For a fixed bank of M planes, the unary matrix occupies O(N(M + 1)) memory. Each expansion builds and solves a binary graph with N point nodes and O(N + \textbar \(\mathcal E\)\textbar) arcs; its cost depends on the graph and max-flow solver. Repeating this operation across labels and sweeps is the principal extra work relative to greedy extraction. Refitting uses SVD of matrices with three columns, while refreshing the unary matrix again requires O(NM) residual evaluations.
+
+Energy minimization supplies an explicit and auditable optimization target, but its success depends on the initial candidates, graph, noise scales, and computation budget. The implementation does not explicitly penalize the number of active planes. Unused labels disappear only at the end, and an active plane may have fewer than m assigned points. Neither low energy nor termination guarantees recovery of the reference segmentation, correct model count, or global optimality. These limits motivate measuring overlap, extracted-plane count, runtime, and energy reduction together.

@@ -1,0 +1,131 @@
+\section{Hybrid RANSAC and PEARL Method}\label{hybrid-ransac-and-pearl-method}
+
+The hybrid pipeline uses sequential RANSAC to construct an initial segmentation and PEARL to refine that complete solution. It combines the consensus search described in Section~\ref{ransac-and-sequential-ransac} with the joint assignment and model updates of Section~\ref{pearl-for-joint-plane-estimation-and-segmentation}, based on RANSAC \cite{fischler1981ransac}, PEARL \cite{isack2012energy}, and \(\alpha\)-expansion \cite{boykov2001graphcuts}. The purpose is to test whether energy-based refinement can improve a solution obtained by greedy extraction. This is an experimental combination of the existing methods, rather than a new energy formulation.
+
+\subsection{Overall design and information transfer}\label{overall-design-and-information-transfer}
+
+Let P be the complete input cloud and G = (P, \(\mathcal E\)) the fixed geometry-based neighborhood graph. The pipeline runs sequential RANSAC once per scan and seed. A single run can extract multiple planes in successive stages. The hybrid reuses the exact plane parameters and point labels from the standalone RANSAC baseline without rerunning RANSAC. PEARL then refines the segmentation over the full input cloud, including points that RANSAC left unassigned, and can revise the initial labels. The RANSAC output consists of \(K^{R}\) planes and a label vector containing their accepted supports:
+
+\begin{equation}
+\Theta^R=\{\theta_1^R,\ldots,\theta_{K^R}^R\},
+\label{eq:43}
+\end{equation}
+
+\begin{equation}
+L^R\in\{0,1,\ldots,K^R\}^N.
+\label{eq:44}
+\end{equation}
+
+The superscript R identifies the RANSAC output. Its positive labels index the returned plane array and label zero denotes unassigned points. The hybrid transfers both arrays directly to PEARL:
+
+\begin{equation}
+\Theta^{(0)}=\Theta^R,\qquad L^{(0)}=L^R.
+\label{eq:45}
+\end{equation}
+
+Preserving both models and assignments is essential. Initializing only the plane parameters and recomputing nearest-plane labels would define a different experiment, because it would discard the segmentation produced by sequential extraction. The hybrid instead begins at the exact RANSAC solution and measures the effect of the subsequent optimizer.
+
+\subsection{Construction of the RANSAC initialization}\label{construction-of-the-ransac-initialization}
+
+The initialization uses the same sequential-RANSAC result as the standalone baseline, rather than rerunning it with a different seed or parameter set. At each extraction stage, the algorithm attempts 150 triplet hypotheses on the remaining points. Mixed local and global sampling, nondegeneracy checks, unit-normal plane estimation, thresholded consensus scoring, and support-based selection follow Section~\ref{ransac-and-sequential-ransac}. The strongest supported plane undergoes up to three SVD refit-and-reclassification passes before its accepted support is removed.
+
+If \(I_{k}\) is the support accepted at stage k and \(R_{k}\) the remaining index set, the sequential update is
+
+\begin{equation}
+R_{k+1}=R_k\setminus I_k,\qquad L_i^R=k\quad\text{for }i\in I_k.
+\label{eq:46}
+\end{equation}
+
+The selected configuration uses distance threshold \(\tau\) = 0.04, minimum extraction support m = 6, local sampling fraction 0.7, local grid radius eight, and a maximum of 150 extracted planes. Extraction stops when the remaining set or strongest candidate has insufficient support, or the plane cap is reached. The resulting \(K^{R}\) depends on the scan and seed; it is not supplied from the reference annotations.
+
+\subsection{Transition from greedy extraction to joint refinement}\label{transition-from-greedy-extraction-to-joint-refinement}
+
+RANSAC removes points only while constructing its initial solution. Once PEARL starts, every point in the original input cloud participates again, including points previously removed from later RANSAC searches and points left unassigned. The initial labels specify a starting state, not permanent membership constraints.
+
+The hybrid evaluates this state using the same geometric-plus-spatial energy as sampled-proposal PEARL:
+
+\begin{equation}
+\begin{aligned}E(L,\Theta)&=\sum_{i=1}^{N}D_i(L_i;\Theta)\\&\quad+\lambda\sum_{(i,j)\in\mathcal E}w_{ij}[L_i\ne L_j].\end{aligned}
+\label{eq:47}
+\end{equation}
+
+\begin{equation}
+D_i(k;\Theta)=(n_k^\top x_i+d_k)^2,\quad k>0,
+\label{eq:48}
+\end{equation}
+
+\begin{equation}
+D_i(0;\Theta)=\tau^2,\qquad\lambda=\eta\tau^2.
+\label{eq:49}
+\end{equation}
+
+The graph, edge weights, and energy parameters are unchanged between the two PEARL initializations. The selected smoothness ratio \(\eta\) = 0.4 and threshold \(\tau\) = 0.04 give \(\lambda\) = 0.00064. Optimization uses the normalized energy \(\bar E\) = E/\(\tau^{2}\), while saved histories report the original energy. Since the RANSAC models and memberships are preserved, the first hybrid energy equals the energy of that baseline segmentation:
+
+\begin{equation}
+E^{(0)}=E(L^R,\Theta^R).
+\label{eq:50}
+\end{equation}
+
+This does not imply that sequential RANSAC minimized E. Its consensus-based search follows a different selection rule and does not include the pairwise prior. The comparison script independently evaluates the baseline energy and checks its equality with the first hybrid history value.
+
+\subsection{Assignment and plane updates}\label{assignment-and-plane-updates}
+
+For fixed plane parameters, an \(\alpha\)-expansion move allows each point either to retain its current label or to adopt the target \(\alpha\):
+
+\begin{equation}
+L_i(z_i)=(1-z_i)L_i+z_i\alpha,
+\label{eq:51}
+\end{equation}
+
+\begin{equation}
+z_i\in\{0,1\},\qquad\alpha\in\{0,\ldots,K^R\}.
+\label{eq:52}
+\end{equation}
+
+The binary graph-cut construction is the one derived in Section~\ref{pearl-for-joint-plane-estimation-and-segmentation}. A point can leave an early RANSAC plane, join a later plane, or become an outlier. An initially unassigned point can also acquire a plane label. These changes are chosen jointly through fitting costs and spatial penalties, rather than by testing each point against one fixed distance threshold independently.
+
+With the new labels fixed, the support of plane k is \(I_{k}\)(L) = \{i : \(L_{i}\) = k\}. Its parameters are updated by orthogonal least squares:
+
+\begin{equation}
+\min_{\|n_k\|_2=1,\,d_k}\;\sum_{i\in I_k(L)}(n_k^\top x_i+d_k)^2.
+\label{eq:53}
+\end{equation}
+
+Centered SVD supplies the unit normal associated with the smallest singular value, and the offset is minus the normal's inner product with the support centroid. Thus, the RANSAC plane parameters are initial estimates that may move during refinement. SVD reduces the geometric cost for fixed support; the spatial cost stays constant during that step. Supports with fewer than three points or a degenerate fit retain their previous parameters.
+
+Each outer iteration permits up to three sweeps over all \(K^{R}\) plane labels and the outlier label, visiting them in randomized order. A move is accepted only if it reduces normalized energy by more than \(\varepsilon\) = \(1^{-9}\). Sweeps stop early after a pass without sufficient improvement. One SVD refit pass follows the expansion stage. The process repeats for at most 15 outer iterations, with early termination when the complete iteration reduces normalized energy by at most \(\varepsilon\). These are the same budgets used by sampled-proposal PEARL.
+
+\subsection{Capabilities and restrictions of the hybrid}\label{capabilities-and-restrictions-of-the-hybrid}
+
+The energy history should be non-increasing up to numerical tolerance, so the final hybrid solution satisfies
+
+\begin{equation}
+E(L^H,\Theta^H)\leq E(L^R,\Theta^R).
+\label{eq:54}
+\end{equation}
+
+Here H denotes the hybrid output. The comparison independently recomputes the final energy to check this property. Lower energy means a better solution under the chosen objective; it does not guarantee higher accuracy or overlap against the reference labels. Smoothing can improve coherence while also removing a genuine boundary.
+
+No additional triplet hypotheses are generated during refinement, and no new plane labels are created. Unused labels remain available during optimization and are removed only when producing the final output. Consequently,
+
+\begin{equation}
+K^H\leq K^R\leq150.
+\label{eq:55}
+\end{equation}
+
+Existing planes may change position and orientation, but the method cannot increase the number of available models beyond the RANSAC bank. A surface missed during initialization must acquire support through an existing label if it is to be recovered. A mixed RANSAC segment may be separated when another suitable label is available, but it cannot spawn an extra model. If RANSAC returns no planes, only the outlier label remains and this hybrid cannot discover a plane from scratch. No final segment merging or minimum-support filtering is applied.
+
+\subsection{Comparison design and runtime accounting}\label{comparison-design-and-runtime-accounting}
+
+The initialization experiment evaluates standalone sequential RANSAC, sampled-proposal PEARL, and the hybrid on identical sampled points and graphs. It uses frozen settings selected on the training split, with no separate tuning for the hybrid. The full comparison covers 30 test scans, four variants, and seeds 7, 19, and 43. The generator is reset before each pipeline, making runs reproducible, although different sampling operations do not imply identical random trajectories.
+
+The paired RANSAC-to-hybrid comparison isolates the effect of applying PEARL refinement to that exact RANSAC output. Comparing the two PEARL variants instead compares complete initialization strategies: sampled proposals begin from independently minimized unary labels, whereas the hybrid inherits both models and segmentation. Their model-bank sizes and hypothesis budgets can differ. Their runtime or accuracy difference therefore cannot be attributed solely to the quality of an initial label vector.
+
+Hybrid runtime includes the RANSAC stage once, followed by the measured refinement time:
+
+\begin{equation}
+t_{\mathrm{hybrid}}=t_{\mathrm{RANSAC}}+t_{\mathrm{refinement}}.
+\label{eq:56}
+\end{equation}
+
+The experiment records both components and the total, along with initial and final energy, extracted-plane count, and matched segmentation metrics. Reference labels are accessed for evaluation after fitting; they are not passed to either stage. The hybrid therefore tests whether joint optimization can revise a greedy geometric segmentation under a shared, fixed energy model.

@@ -3,9 +3,9 @@ function stats = generate_dataset_figures(projectDir, outputDir)
 % Run from Final Project: generate_dataset_figures
 % Requires the project's read_synpeb_pcd, load_synpeb_case and fit_plane_svd.
 % All visualization examples are TRAIN scans chosen by index, not test scores.
-if nargin<1, projectDir=fileparts(mfilename('fullpath')); end
-if nargin<2, outputDir=fullfile(projectDir,'results','dataset_figures'); end
-addpath(projectDir);
+if nargin<1, projectDir=fileparts(fileparts(fileparts(mfilename('fullpath')))); end
+if nargin<2, outputDir=fullfile(projectDir,'results','figures','dataset'); end
+addpath(genpath(fullfile(projectDir,'matlab')));
 if ~isfolder(outputDir), mkdir(outputDir); end
 cfg=synpeb_config('full',projectDir);cfg.split='train';
 stats=struct;stats.matlabVersion=version;stats.stride=cfg.stride;

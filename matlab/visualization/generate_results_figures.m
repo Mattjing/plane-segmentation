@@ -1,19 +1,19 @@
 function stats = generate_results_figures(projectDir,outputDir,comparisonDir,ablationDir)
 % Section 7 figures from SAVED predictions and CSV measurements only.
 % No segmentation or parameter tuning is rerun.
-if nargin<1,projectDir=fileparts(mfilename('fullpath'));end
-if nargin<2,outputDir=fullfile(projectDir,'results','report_figures');end
-addpath(projectDir);if ~isfolder(outputDir),mkdir(outputDir);end
-if nargin<3,comparisonDir=fullfile(projectDir,'results','initialization_comparison','full','20261124_022344_155');end
+if nargin<1,projectDir=fileparts(fileparts(fileparts(mfilename('fullpath'))));end
+if nargin<2,outputDir=fullfile(projectDir,'results','figures','report');end
+addpath(genpath(fullfile(projectDir,'matlab')));if ~isfolder(outputDir),mkdir(outputDir);end
+if nargin<3,comparisonDir=fullfile(projectDir,'results','runs','initialization_comparison','full','20261124_022344_155');end
 comparison=comparisonDir;
-if nargin<4,ablationDir=fullfile(projectDir,'results','full','20261124_062337_283');end
+if nargin<4,ablationDir=fullfile(projectDir,'results','runs','full','20261124_062337_283');end
 ablation=ablationDir;
 assert(isfolder(comparison) && isfolder(ablation), ...
     'Supply saved comparison and ablation run directories as arguments 3 and 4.');
 T=readtable(fullfile(comparison,'initialization_metrics.csv'),'TextType','string');
 A=readtable(fullfile(ablation,'metrics_per_case.csv'),'TextType','string');
 frozen=load(fullfile(comparison,'configuration.mat'),'cfg');cfg=frozen.cfg;
-cfg.projectDir=projectDir;cfg.dataRoot=fullfile(projectDir,'synpeb');
+cfg.projectDir=projectDir;cfg.dataRoot=fullfile(projectDir,'data','synpeb');
 methods=["RANSAC","PEARL_sampled","RANSAC_PEARL"];
 names={'RANSAC','Sampled PEARL','Hybrid'};colors=[0.12 0.37 0.65;0.85 0.37 0.10;0.18 0.56 0.39];
 stats=struct('comparisonSource',comparison,'ablationSource',ablation,'matlabVersion',version);

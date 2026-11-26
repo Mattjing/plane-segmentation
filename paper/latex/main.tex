@@ -1,0 +1,34 @@
+\documentclass[conference]{IEEEtran}
+% IEEE Conference Template downloaded from the user's Overleaf project.
+\usepackage[T1]{fontenc}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\interdisplaylinepenalty=2500
+\begin{document}
+\title{Energy-Based Multi-Plane Segmentation of 3D Point Clouds}
+\author{\IEEEauthorblockN{Matt (Haocun) Jing}
+\IEEEauthorblockA{Department of Electrical and Computer Engineering\\
+University of Victoria\\
+ECE 503: Optimization in Machine Learning}}
+\maketitle
+\begin{abstract}
+Plane segmentation requires estimating geometric models and their supporting points under measurement noise. This paper compares sequential random sample consensus (RANSAC), the energy-based multi-model fitting method PEARL with sampled proposals, and a hybrid that initializes PEARL with RANSAC planes and assignments. PEARL alternates graph-cut assignment updates with singular value decomposition for plane refitting, minimizing geometric error and spatial disagreement. Hyperparameters are selected on the training split of the Synthetic Plane Extraction Benchmark and fixed for evaluation on 30 test scans, four measurement variants, and three random seeds. Sampled PEARL achieves the highest mean matched point accuracy of 84.26\%, requiring 19.620 s per record. The hybrid achieves 77.98\% in 2.512 s, improving RANSAC accuracy by 8.08 percentage points while running approximately 7.81 times faster than sampled PEARL. RANSAC remains fastest at 0.376 s, with 69.89\% accuracy. Hybrid mean matched intersection over union is 0.2836, compared with 0.4554 for sampled PEARL, indicating a remaining difference in individual-plane recovery. A fixed-configuration ablation reduces sampled PEARL accuracy to 11.27\% when spatial regularization is removed. These results favor spatially regularized, RANSAC-initialized PEARL as a practical cost--accuracy compromise among the tested pipelines, while showing that lower fitting energy does not guarantee improved reference-label accuracy.
+\end{abstract}
+\begin{IEEEkeywords}
+Energy minimization, graph cuts, plane segmentation, point clouds, random sample consensus.
+\end{IEEEkeywords}
+\input{sections/introduction}
+\input{sections/related}
+\input{sections/ransac}
+\input{sections/pearl}
+\input{sections/hybrid}
+\input{sections/dataset}
+\input{sections/results}
+\input{sections/conclusion}
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+\end{document}

@@ -6,8 +6,8 @@
 % 3. Only confirmation writes selected_parameters.mat for full test mode.
 % Figures are disabled during tuning. Test data are never loaded here.
 clear; clc;
-projectDir=fileparts(mfilename('fullpath'));
-addpath(projectDir);
+addpath(fileparts(fileparts(mfilename('fullpath'))));
+projectDir=setup_project();
 phase='confirm';                       % 'screen' or 'confirm'
 cfg=synpeb_config('tune',projectDir);
 
@@ -25,8 +25,8 @@ cfg.saveFigures=false;
 cfg.runAblation=false;
 
 options.phase=phase;
-options.outputRoot=fullfile(projectDir,'results','tuning_updated');
-options.selectionPath=fullfile(projectDir,'selected_parameters.mat');
+options.outputRoot=fullfile(projectDir,'results','runs','tuning_updated');
+options.selectionPath=fullfile(projectDir,'config','selected_parameters.mat');
 options.proposalCounts=[1000 3000 5000];
 options.planeCaps=[60 100 150];
 options.localRadii=[2 4 8];

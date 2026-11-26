@@ -1,12 +1,28 @@
-# Dataset and generated experiment outputs
-/synpeb/
-/results/
+# Large external inputs and local experiment artifacts
+/data/synpeb/
+/data/archives/
+/results/runs/
+/results/figures/
+/archive/
+/paper/drafts/
+/paper/proposal/
+/submission/*
+!/submission/README.md
+# LaTeX build files; the reviewed PDF is kept in paper/report/
+/paper/latex/build/
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
 *.asv
 *.m~
 *.bak
-*.log
 *.fig
-/matlab_crash_dump.*
-/slprj/
-/.DS_Store
-/Thumbs.db
+matlab_crash_dump.*
+slprj/
+.DS_Store
+Thumbs.db

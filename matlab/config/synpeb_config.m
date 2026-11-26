@@ -1,9 +1,9 @@
 function cfg = synpeb_config(mode, projectDir)
 % All numerical defaults are STARTING VALUES, not validated/tuned results.
-if nargin < 2, projectDir = fileparts(mfilename('fullpath')); end
+if nargin < 2, projectDir = fileparts(fileparts(fileparts(mfilename('fullpath')))); end
 cfg.projectDir = projectDir;
-cfg.dataRoot = fullfile(projectDir, 'synpeb');
-cfg.outputRoot = fullfile(projectDir, 'results', mode);
+cfg.dataRoot = fullfile(projectDir, 'data', 'synpeb');
+cfg.outputRoot = fullfile(projectDir, 'results', 'runs', mode);
 cfg.mode = mode;
 cfg.split = 'train';
 cfg.scanIds = 1;
@@ -30,7 +30,7 @@ cfg.fragmentFraction = 0.1;
 cfg.runAblation = false;
 cfg.saveFigures = true;
 cfg.parametersTuned = false;
-cfg.parameterFile = fullfile(projectDir,'selected_parameters.mat');
+cfg.parameterFile = fullfile(projectDir,'config','selected_parameters.mat');
 if strcmp(mode,'full')
     assert(isfile(cfg.parameterFile), ...
         'Tune on train first: run tune_synpeb_project.m.');
